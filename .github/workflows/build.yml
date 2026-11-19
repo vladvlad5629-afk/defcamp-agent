@@ -1,0 +1,58 @@
+name: Build AI Safe Labs harness
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run JavaScript tests
+        run: node --test test/harness.test.mjs test/practice.test.mjs
+
+      - name: Run Docker practice smoke test
+        shell: bash
+        run: |
+          trap 'docker compose down -v' EXIT
+          docker compose up --build --exit-code-from harness
+
+      - name: Build official linux/amd64 image tar
+        run: sh build.sh
+
+      - name: Check archive format and size
+        shell: bash
+        run: |
+          test -f my-harness.tar
+          size=$(stat -c%s my-harness.tar)
+          echo "Size: $size bytes"
+          test "$size" -le 1073741824
+          original=$(docker image inspect my-harness --format '{{.Id}}')
+          docker image rm my-harness
+          docker load --input my-harness.tar
+          test "$(docker image inspect my-harness --format '{{.Id}}')" = "$original"
+          test "$(docker image inspect my-harness --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          test "$(docker image inspect my-harness --format '{{.Size}}')" -lt 6000000000
+          sha256sum my-harness.tar
+
+      - name: Upload competition harness
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-harness-tar
+          path: my-harness.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
