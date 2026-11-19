@@ -1,14 +1,8 @@
-# AISafe · harness pentru fișiere codificate
+# AISafe offline investigation harness
 
-Această variantă rezolvă automat un tip restrâns de problemă. Un fișier din /code trebuie să conțină o valoare completă sau să producă acea valoare după decodare. Suportă hex, Base64 standard cu padding, inversarea octeților și ROT13. Poate rezolva separat proba publică Sanity Check descrisă în kit. Un rezultat cu format valid poate fi un exemplu sau o momeală. Doar gateway-ul confirmă captura.
+Sanity Check keeps its documented two-file HTTP reader and zero-model path. For local files the agent first tries inexpensive whole-file checks. It then uses structured Chat Completions tool calls. Qwen can inspect text and hex at byte offsets, locate literal strings, extract byte ranges, test encoding and repeating-key XOR hypotheses, and join derived artifacts. Intermediate artifacts retain IDs across turns. Verification operates on the reconstructed bytes. The gateway decides acceptance.
 
-## Cum rulează
-
-1. Agentul citește timpul și bugetul din /health. Inventariază fișiere obișnuite din volumul read-only, până la 64 de fișiere, 64 KiB pe fișier, 2 MiB în total și 512 intrări. Sare peste linkuri simbolice. Dacă inventarul este incomplet, raportează limita.
-2. Încearcă citirea directă și cele patru transformări individuale. Cere ca întregul rezultat, după eliminarea spațiilor marginale, să aibă formatul unui flag. Respinge valorile alcătuite din aceeași cifră hex repetată și cazurile cu mai mulți candidați direcți distincți.
-3. Pentru fixture-ul public recunoaște instrucțiunile și prefixul furnizate de organizatori. Citește două resurse statice documentate de pe singura destinație din TARGETS. Nu urmărește redirecturi. Tokenul merge exclusiv la gateway.
-4. Pentru un fișier codificat în mai multe straturi poate cere modelului intern un indice de fișier și maximum cinci transformări. Chat Completions permite o cerere simplă cu inventarul, mostre scurte, INSTRUCTIONS și operațiile deja încercate. Agentul validează propunerea și reproduce transformările local. Trimiterea unei valori scrise liber de model este imposibilă prin această interfață.
-5. Sunt implicit șase cereri, configurabile prin AGENT_MAX_STEPS până la 14. Fiecare încercare consultă /health. Răspunsul 400 reduce mostra pentru următoarea cerere, 429 și 503 folosesc Retry-After dacă timpul permite, 402 încheie încercările de model, iar 409 oprește bucla. O propunere repetată sau un candidat respins încheie rularea. O eroare de transport la trimitere poate lăsa verdictul necunoscut. Agentul evită retrimiterea automată.
+Every model request refreshes time and spend from /health. The agent accumulates usage.total_tokens when reported. The kit exposes remaining cents and seconds; it has no documented remaining-token counter. Recent tool exchanges and a bounded record of observations carry across turns. An idle reply gets two chances to recover. Failed tool arguments and repeated actions produce feedback. The default ceiling is 24 model requests, adjustable with AGENT_MAX_STEPS (maximum 50). The inventory covers regular files of up to 64 KiB each, 2 MiB total; omitted entries are flagged in the prompt. The model can analyze only the indexed data and available operations. It cannot execute arbitrary programs or interact with live services. The documented practice reader is the single exception for static HTTP files.
 
 ## Rulare de pe calculator
 
@@ -43,8 +37,6 @@ sh build.sh
 
 Scripturile construiesc pentru linux/amd64 și produc my-harness.tar. Pe platformă, secțiunea Harnesses primește fișierul TAR. Încărcarea înlocuiește harness-ul live al echipei. Verifică întâi rezultatul local și dimensiunea TAR (maximum 1 GiB), apoi rulează Sanity Check pe platformă.
 
-## Verificări și limite
+## Validation
 
-Testele acoperă validarea, decodarea, autentificarea, păstrarea prefixului de URL, răspunsuri de model simulate, compactarea mostrelor, reîncercarea, epuizarea resurselor, respingerea și acceptarea. Testul de integrare pornește gateway-ul oficial nemodificat și un server static temporar cu fragmente generate aleator. Acesta reproduce interfața fixture-ului fără Docker. Execuția de dezvoltare a folosit Node 24. Imaginea țintește Node 22. Docker, platforma live și modelul real nu au fost testate. Dimensiunea imaginii finale nu a fost măsurată.
-
-Starterul original permite modelului să ruleze shell, păstrează istoricul dialogului și folosește implicit 14 pași și o rezervă de 100 s. Agentul din această arhivă are un repertoriu fix de transformări și nu execută comenzi sau binare primite din probă. Nu acoperă exploatarea web, analiza dinamică sau criptografia generală. Nu există un benchmark comparativ cu Basic. STARTER-REFERENCE.md descrie kitul original și gateway-ul. Pentru comportamentul acestei variante folosește prezentul README.
+The test suite covers scripted model iteration, failed tools, exact-byte reconstruction, budget handling, gateway submission, and the official local practice gateway. GitHub Actions builds on Ubuntu using Node 22, runs Docker Compose, saves the image, reloads the TAR, and checks identity, linux/amd64, and size. A successful practice run verifies packaging and gateway integration. Competition performance requires separate live evaluation.
