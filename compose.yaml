@@ -1,0 +1,86 @@
+# A local run, set up the way the event runs one: your harness, a practice
+# challenge and a gateway on a private network with no internet. Only the
+# gateway can reach out, and only when you give it an LLM endpoint in .env.
+#
+#   docker compose up --build --exit-code-from harness
+#   docker compose down -v
+
+x-flag: &flag flag{0123456789abcdef0123456789abcdef}
+x-token: &token local
+
+services:
+  harness:
+    build: harness
+    image: my-harness
+    platform: linux/amd64
+    networks: [run]
+    volumes:
+      - code:/code:ro
+    environment:
+      # with a path, like at the event: append routes to it ($GATEWAY_URL/flag)
+      GATEWAY_URL: http://gateway:8080/gateway
+      RUN_TOKEN: *token
+      RUN_ID: local
+      TARGETS: challenge:80
+      INSTRUCTIONS: ${INSTRUCTIONS:-}
+      TIME_LIMIT_SECONDS: ${TIME_LIMIT_SECONDS:-600}
+      COST_LIMIT_CENTS: ${COST_LIMIT_CENTS:-100}
+      # HARNESS_FORMAT and AGENT_MAX_STEPS are not here on purpose: they are
+      # set in harness/Dockerfile, so the image you test is the one that runs
+    # roughly what a run gets at the event
+    cpus: 0.5
+    mem_limit: 3g
+    pids_limit: 512
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    security_opt: [no-new-privileges]
+    depends_on:
+      challenge: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+
+  challenge:
+    build: local/practice
+    init: true
+    networks: [run]
+    volumes:
+      - code:/code
+    environment:
+      FLAG: *flag
+    healthcheck:
+      # a bare connect, so the check stays out of the challenge's access log
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 80))"]
+      interval: 2s
+      retries: 15
+
+  gateway:
+    image: node:22-alpine
+    init: true
+    command: ["node", "/app/gateway.mjs"]
+    networks: [run, internet]
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./local/gateway.mjs:/app/gateway.mjs:ro
+    environment:
+      RUN_TOKEN: *token
+      RUN_ID: local
+      FLAG: *flag
+      INSTRUCTIONS: ${INSTRUCTIONS:-}
+      TIME_LIMIT_SECONDS: ${TIME_LIMIT_SECONDS:-600}
+      COST_LIMIT_CENTS: ${COST_LIMIT_CENTS:-100}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--header", "X-Run-Token: local", "http://127.0.0.1:8080/gateway/health"]
+      interval: 2s
+      retries: 15
+
+volumes:
+  code:
+
+networks:
+  run:
+    internal: true
+  internet: {}
