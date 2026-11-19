@@ -2,7 +2,7 @@ name: Build AI Safe Labs harness
 
 on:
   push:
-    branches: [main]
+    branches: [main, offline-artifact-investigation]
   workflow_dispatch:
 
 permissions:
