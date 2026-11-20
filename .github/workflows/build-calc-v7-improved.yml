@@ -1,0 +1,38 @@
+name: Build calc-v7 improved
+
+on:
+  push:
+    branches: [calc-v7-improved]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build linux/amd64 image
+        run: docker build --platform linux/amd64 -t calc-v7-improved ./calc-v7-improved
+
+      - name: Export and validate upload archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save calc-v7-improved | gzip -9 > calc-v7-improved.tar.gz
+          gzip -t calc-v7-improved.tar.gz
+          size=$(stat -c%s calc-v7-improved.tar.gz)
+          echo "Archive size: $size bytes"
+          test "$size" -le 1073741824
+
+      - name: Upload competition harness
+        uses: actions/upload-artifact@v4
+        with:
+          name: calc-v7-improved-tar-gz
+          path: calc-v7-improved.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
