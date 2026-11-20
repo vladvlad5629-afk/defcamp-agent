@@ -119,7 +119,7 @@ test('notebook exposes static triage, strings, compression and bounded coverage'
   const decoded = local('derive',{id:0,steps:['gzip']});
   assert.equal(local('extract_strings',{id:decoded.id,minLength:5}).strings[0].text,'hint:' + flag);
   local('inspect',{id:decoded.id,offset:0,length:5});
-  assert.deepEqual(local.coverage(),[{id:decoded.id,ranges:[[0,5]]}]);
+  assert.deepEqual(local.coverage(),[{id:0,ranges:[[0,zipped.length]]},{id:decoded.id,ranges:[[0,5]]}]);
   assert.equal(local('math',{operation:'modpow',base:'4',exponent:'13',modulus:'497'}).decimal,'445');
   assert.equal(local('math',{operation:'modinv',a:'3',modulus:'11'}).decimal,'4');
 });
