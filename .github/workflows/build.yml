@@ -2,6 +2,8 @@ name: Build AI Safe Labs harness
 
 on:
   push:
+    branches: [main, offline-artifact-investigation, agentic-ctf-harness-v2]
+  pull_request:
     branches: [main, offline-artifact-investigation]
   workflow_dispatch:
 
