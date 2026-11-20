@@ -6,11 +6,13 @@ param([string]$Name = "my-harness")
 
 $archive = Join-Path $PSScriptRoot "$Name.tar"
 
-# The event runs linux/amd64, whatever machine you build on.
-docker build --platform linux/amd64 -t $Name (Join-Path $PSScriptRoot "harness")
+# Export a Docker image archive explicitly. Recent Docker/containerd stores
+# can make docker save emit OCI layouts, which the event loader rejects.
+docker buildx build --platform linux/amd64 --tag "${Name}:latest" --output "type=docker,dest=$archive" (Join-Path $PSScriptRoot "harness")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-docker save -o $archive $Name
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$entries = tar -tf $archive
+if ($entries -contains "oci-layout") { throw "OCI archive produced; expected Docker image archive" }
 
 $size = (Get-Item $archive).Length
 Write-Host ("wrote {0}.tar ({1} MB). Upload it on the Harnesses page." -f $Name, [math]::Floor($size / 1MB))

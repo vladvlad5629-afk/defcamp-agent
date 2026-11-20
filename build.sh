@@ -8,10 +8,15 @@ set -eu
 name="${1:-my-harness}"
 cd "$(dirname "$0")"
 
-# The event runs linux/amd64. On Apple Silicon this builds under emulation,
-# which is slower but gives the image the platform can run.
-docker build --platform linux/amd64 -t "$name" harness
-docker save -o "$name.tar" "$name"
+# Export a Docker image archive explicitly. Recent Docker/containerd stores
+# make `docker save` emit OCI layouts, which older event loaders reject.
+docker buildx build --platform linux/amd64 --tag "$name:latest" \
+  --output "type=docker,dest=$name.tar" harness
+
+if tar -tf "$name.tar" | grep -qx 'oci-layout'; then
+  echo "error: OCI archive produced; expected Docker image archive" >&2
+  exit 1
+fi
 
 size=$(wc -c < "$name.tar" | tr -d ' ')
 echo "wrote $name.tar ($((size / 1048576)) MB). Upload it on the Harnesses page."
