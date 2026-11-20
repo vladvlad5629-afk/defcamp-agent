@@ -26,6 +26,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Install OCI archive converter
+        run: sudo apt-get update && sudo apt-get install --yes skopeo
+
       - name: Run JavaScript tests
         run: node --test test/harness.test.mjs test/practice.test.mjs
 
@@ -42,7 +45,7 @@ jobs:
         shell: bash
         run: |
           test -f my-harness.tar
-          ! tar -tf my-harness.tar | grep -qx 'oci-layout'
+          tar -tf my-harness.tar | grep -qx 'repositories'
           tar -tf my-harness.tar | grep -qx 'manifest.json'
           size=$(stat -c%s my-harness.tar)
           echo "Size: $size bytes"
