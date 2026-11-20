@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { run } from '../harness/agent.mjs';
-import { decode, valid, notebook } from '../harness/analysis.mjs';
+import { decode, valid, notebook, candidates, describe } from '../harness/analysis.mjs';
 
 const flag = 'flag{' + randomBytes(16).toString('hex') + '}';
 test('decoders and strict flag validation', () => {
@@ -19,7 +20,7 @@ test('decoders and strict flag validation', () => {
 async function scenario(t, { replies = [], cents = 5, seconds = 100, correct = true, plain = false }) {
   const dir = await mkdtemp(join(tmpdir(),'encoding-'));
   t.after(() => rm(dir,{recursive:true,force:true}));
-  const data = plain ? flag : Buffer.from(Buffer.from(flag).toString('base64')).reverse();
+  const data = plain ? flag : Buffer.from(Buffer.from(flag).toString('base64')).reverse().map(b => b ^ 7);
   await writeFile(join(dir,'message'),data);
   await writeFile(join(dir,'notes'),'h'.repeat(200));
   const events = [];
@@ -39,8 +40,9 @@ async function scenario(t, { replies = [], cents = 5, seconds = 100, correct = t
       assert.ok(reply);
       res.statusCode = reply.status || 200;
       res.setHeader('Retry-After','0');
-      const id = JSON.parse(parsed.messages[1].content).files.find(f => f.name === 'message').id;
-      const args = reply.args === 'message' ? {id,steps:['reverse','base64']} : reply.args;
+      const context = JSON.parse(parsed.messages.find(m => m.role === 'user').content);
+      const id = context.manifest.find(f => f.name === 'message').id;
+      const args = reply.args === 'message' ? {id,steps:['xor','reverse','base64'],keyHex:'07'} : reply.args;
       const message = reply.tool ? {content:null,tool_calls:[{id:'call-'+events.length,type:'function',function:{name:reply.tool,arguments:JSON.stringify(args)}}]} : {content:reply.content};
       answer = {choices:[{message}],usage:{total_tokens:12}};
     }
@@ -57,7 +59,7 @@ test('recover after busy, oversize context, idle model and bad tool, then verify
   assert.equal(status,0);
   const calls = events.filter(([p]) => p === 'completions');
   assert.equal(calls.length,6);
-  assert.ok(calls[2][1].messages[1].content.length < calls[1][1].messages[1].content.length);
+  assert.ok(JSON.parse(calls[2][1].messages[1].content).ledger.length >= 1);
   assert.ok(calls[4][1].messages.some(m=>m.role==='tool' && m.content.includes('Unknown artifact id')));
   assert.equal(JSON.parse(calls[5][1].messages[1].content).tokensUsed,36);
   assert.equal(events.filter(([p])=>p==='flag').length,1);
@@ -93,3 +95,36 @@ test('keyed hypothesis uses original bytes including whitespace', () => {
   const a=local('derive',{id:0,steps:['base64','xor'],keyHex:'ff'});
   assert.equal(local('inspect',{id:a.id,offset:0,length:4}).hex,'dffff500');
 });
+
+test('offline triage identifies formats and cheap nested decoding without model calls', () => {
+  const wrapped = Buffer.from(Buffer.from(flag).toString('base64')).reverse();
+  assert.deepEqual(candidates(wrapped),[flag]);
+  const binary = Buffer.concat([Buffer.from([0x7f,0x45,0x4c,0x46]),Buffer.alloc(80,0)]);
+  assert.equal(describe(binary,'payload').kind,'ELF executable');
+});
+
+test('offline benchmark: manifest triage of 48 bounded artifacts stays sub-second', () => {
+  const artifacts = Array.from({length:48},(_,i) => Buffer.from(`artifact-${i}:` + 'A'.repeat(4096)));
+  const started = performance.now();
+  const summaries = artifacts.map((data,i) => ({info:describe(data,`fixture-${i}.txt`), flags:candidates(data)}));
+  assert.equal(summaries.filter(x=>x.info.kind === 'text').length,48);
+  assert.equal(summaries.flatMap(x=>x.flags).length,0);
+  assert.ok(performance.now()-started < 1000);
+});
+
+test('notebook exposes static triage, strings, compression and bounded coverage', () => {
+  const zipped = awaitableGzip(Buffer.from('hint:' + flag));
+  const local = notebook([{path:'a.gz',data:zipped}]);
+  assert.equal(local('overview',{id:0}).kind,'gzip stream');
+  const decoded = local('derive',{id:0,steps:['gzip']});
+  assert.equal(local('extract_strings',{id:decoded.id,minLength:5}).strings[0].text,'hint:' + flag);
+  local('inspect',{id:decoded.id,offset:0,length:5});
+  assert.deepEqual(local.coverage(),[{id:0,ranges:[[0,zipped.length]]},{id:decoded.id,ranges:[[0,5]]}]);
+  assert.equal(local('math',{operation:'modpow',base:'4',exponent:'13',modulus:'497'}).decimal,'445');
+  assert.equal(local('math',{operation:'modinv',a:'3',modulus:'11'}).decimal,'4');
+});
+
+function awaitableGzip(data) {
+  // Node's synchronous built-in compressor keeps this benchmark dependency-free.
+  return gzipSync(data);
+}
